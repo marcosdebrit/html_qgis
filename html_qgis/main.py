@@ -1,28 +1,31 @@
 import sys
 import importlib
+from qgis.utils import iface
 
-# 1. Caminho absoluto da sua pasta (retirado do seu próprio print)
-caminho_pasta = '/Users/marcosdebrito/Documents/html_qgis'
+# 1. Caminho absoluto da sua pasta
+caminho_pasta = r'C:\Users\LINES-COLAB\Documents\teste_classif\kml'
 
-# 2. Adiciona o caminho ao sistema do QGIS
 if caminho_pasta not in sys.path:
-    sys.path.append(caminho_pasta)
+    sys.path.insert(0, caminho_pasta)
 
-# 3. Importa os seus módulos e FORÇA o recarregamento (muito importante!)
+# 2. Importa e recarrega os módulos
 import gerador_html
 importlib.reload(gerador_html)
 
 import interface
 importlib.reload(interface)
 
-# 4. Importa a janela e o iface do QGIS
 from interface import TabelaHtmlDialog
-from qgis.utils import iface
 
-def executar():
-    # Cria a janela e mostra
-    janela = TabelaHtmlDialog(iface.mainWindow())
-    janela.show()
+# A GRANDE DIFERENÇA ESTÁ AQUI:
+# Declaramos a variável como 'global' ANTES de criar a janela.
+# Isso impede o Python de apagar o "cérebro" do plugin da memória!
+global janela_plugin
 
-# No QGIS Console, podemos chamar a função diretamente
-executar()
+# Se já houver uma janela aberta, fechamos antes de abrir a nova
+if 'janela_plugin' in globals() and janela_plugin is not None:
+    janela_plugin.close()
+
+# Cria a janela e mostra
+janela_plugin = TabelaHtmlDialog(iface.mainWindow())
+janela_plugin.show()
