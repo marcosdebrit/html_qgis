@@ -2,10 +2,10 @@
 from qgis.PyQt.QtWidgets import (QApplication, QDialog, QVBoxLayout, QFormLayout, 
                                  QLineEdit, QPushButton, QHBoxLayout,
                                  QListWidget, QListWidgetItem, QAbstractItemView,
-                                 QDialogButtonBox, QMessageBox, QCheckBox)
+                                 QDialogButtonBox, QMessageBox, QCheckBox, QLabel)
 from qgis.PyQt.QtCore import Qt
 from qgis.gui import QgsMapLayerComboBox, QgsFieldComboBox
-from qgis.core import QgsMapLayerProxyModel
+from qgis.core import QgsMapLayerProxyModel, QgsProject
 
 # Importar o nosso motor HTML
 from gerador_html import processar_e_gerar_html
@@ -13,17 +13,30 @@ from gerador_html import processar_e_gerar_html
 class DialogoSelecaoCampos(QDialog):
     def __init__(self, camada, campos_atuais, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Dissolver campo(s)")
-        self.resize(300, 400)
+        self.setWindowTitle("Selecionar e Ordenar Campos")
+        self.resize(350, 450)
         
         layout = QVBoxLayout(self)
-        self.lista_campos = QListWidget(self)
-        self.lista_campos.setSelectionMode(QAbstractItemView.NoSelection)
         
-        for campo in camada.fields():
-            item = QListWidgetItem(campo.name())
+        lbl_instrucao = QLabel("Marque os campos desejados.\nArraste os itens para cima ou para baixo para\ndefinir a ordem das colunas na tabela.")
+        layout.addWidget(lbl_instrucao)
+        
+        self.lista_campos = QListWidget(self)
+        self.lista_campos.setDragDropMode(QAbstractItemView.InternalMove)
+        
+        campos_restantes = [f.name() for f in camada.fields() if f.name() not in campos_atuais]
+        
+        for nome_campo in campos_atuais:
+            if camada.fields().indexOf(nome_campo) != -1:
+                item = QListWidgetItem(nome_campo)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked)
+                self.lista_campos.addItem(item)
+                
+        for nome_campo in campos_restantes:
+            item = QListWidgetItem(nome_campo)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if campo.name() in campos_atuais else Qt.Unchecked)
+            item.setCheckState(Qt.Unchecked)
             self.lista_campos.addItem(item)
             
         layout.addWidget(self.lista_campos)
@@ -59,18 +72,19 @@ class TabelaHtmlDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Gerador de Tabela HTML - Lines Brasil")
-        self.resize(550, 420)
+        self.resize(550, 520)
         
         layout = QVBoxLayout(self)
         form_layout = QFormLayout()
         
         self.cb_camada = QgsMapLayerComboBox(self)
         self.cb_camada.setFilters(QgsMapLayerProxyModel.VectorLayer)
+        self.cb_camada.setProject(QgsProject.instance())
         form_layout.addRow("Camada de Entrada:", self.cb_camada)
         
         box_agrupar = QHBoxLayout()
         self.txt_campos_agrupar = QLineEdit(self)
-        self.txt_campos_agrupar.setReadOnly(True)
+        self.txt_campos_agrupar.setPlaceholderText("Deixe vazio ou escolha os campos...")
         self.btn_selecionar = QPushButton("...", self)
         self.btn_selecionar.setFixedWidth(40)
         self.btn_selecionar.clicked.connect(self.abrir_janela_campos)
@@ -94,15 +108,41 @@ class TabelaHtmlDialog(QDialog):
         self.chk_subtotal.toggled.connect(self.cb_campo_subtotal.setEnabled)
         self.chk_subtotal.toggled.connect(self.txt_prefixo_sub.setEnabled)
         
-        self.cb_campo_area = QgsFieldComboBox(self)
-        form_layout.addRow("Campo de Área (Soma):", self.cb_campo_area)
+        box_area = QHBoxLayout()
+        self.txt_campos_area = QLineEdit(self)
+        self.txt_campos_area.setPlaceholderText("Ex: AREA_PIQUE, AREA_USO_P")
+        self.btn_selecionar_area = QPushButton("...", self)
+        self.btn_selecionar_area.setFixedWidth(40)
+        self.btn_selecionar_area.clicked.connect(self.abrir_janela_campos_area)
+        box_area.addWidget(self.txt_campos_area)
+        box_area.addWidget(self.btn_selecionar_area)
+        form_layout.addRow("Campo(s) de Área (Soma):", box_area)
         
-        self.txt_titulo_agrupar = QLineEdit("Retiro, Nº Piquete, Nome Piquete", self)
-        self.txt_titulo_area = QLineEdit("Área Cercada (ha)", self)
+        # NOVA OPÇÃO DE DEDUPLICAÇÃO
+        self.chk_deduplicar = QCheckBox("1º Campo de Área é Fixo/Total (Remover duplicadas)")
+        self.chk_deduplicar.setChecked(True) # Ligado por padrão, ótimo para área de piquetes!
+        self.chk_deduplicar.setToolTip("Marque isto quando usar interseção. Evita que a área do polígono original seja somada várias vezes.")
+        form_layout.addRow("", self.chk_deduplicar)
+        
+        self.chk_perc = QCheckBox("Gerar coluna de Área (%)")
+        self.chk_perc.setChecked(False)
+        form_layout.addRow("", self.chk_perc)
+        
+        # Titulos Iniciais (Opcionais)
+        self.txt_titulo_agrupar = QLineEdit(self)
+        self.txt_titulo_agrupar.setPlaceholderText("Deixe vazio para usar o nome da coluna")
+        
+        self.txt_titulo_area = QLineEdit(self)
+        self.txt_titulo_area.setPlaceholderText("Deixe vazio para usar o nome da coluna")
+        
         self.txt_titulo_perc = QLineEdit("Área (%)", self)
+        self.txt_titulo_perc.setEnabled(False)
+        
         form_layout.addRow("Títulos Iniciais (Separe por ,):", self.txt_titulo_agrupar)
-        form_layout.addRow("Título Coluna de Área:", self.txt_titulo_area)
+        form_layout.addRow("Título(s) de Área (Separe por ,):", self.txt_titulo_area)
         form_layout.addRow("Título Coluna Percentual:", self.txt_titulo_perc)
+        
+        self.chk_perc.toggled.connect(self.txt_titulo_perc.setEnabled)
         
         layout.addLayout(form_layout)
         
@@ -121,9 +161,10 @@ class TabelaHtmlDialog(QDialog):
 
     def ao_mudar_camada(self):
         camada = self.cb_camada.currentLayer()
-        self.cb_campo_area.setLayer(camada)
-        self.cb_campo_subtotal.setLayer(camada)
+        if camada:
+            self.cb_campo_subtotal.setLayer(camada)
         self.txt_campos_agrupar.clear()
+        self.txt_campos_area.clear()
 
     def abrir_janela_campos(self):
         camada = self.cb_camada.currentLayer()
@@ -134,28 +175,47 @@ class TabelaHtmlDialog(QDialog):
         if dialogo.exec_():
             self.txt_campos_agrupar.setText(", ".join(dialogo.get_campos_selecionados()))
 
-    def executar_geracao(self):
-        """Coleta as informações da janela e envia para o Motor no outro ficheiro"""
+    def abrir_janela_campos_area(self):
         camada = self.cb_camada.currentLayer()
-        campo_area = self.cb_campo_area.currentField()
+        if not camada: return
+        texto_atual = self.txt_campos_area.text()
+        campos_atuais = [c.strip() for c in texto_atual.split(",") if c.strip()]
+        dialogo = DialogoSelecaoCampos(camada, campos_atuais, self)
+        dialogo.setWindowTitle("Selecionar Campos Numéricos (Soma)")
+        if dialogo.exec_():
+            self.txt_campos_area.setText(", ".join(dialogo.get_campos_selecionados()))
+
+    def executar_geracao(self):
+        camada = self.cb_camada.currentLayer()
         campos_agrupar = [c.strip() for c in self.txt_campos_agrupar.text().split(",") if c.strip()]
+        campos_area = [c.strip() for c in self.txt_campos_area.text().split(",") if c.strip()]
         
         tem_subtotal = self.chk_subtotal.isChecked()
+        gerar_perc = self.chk_perc.isChecked()
+        deduplicar_primeiro = self.chk_deduplicar.isChecked() # Captura a nova opção
         campo_sub = self.cb_campo_subtotal.currentField()
         prefixo_sub = self.txt_prefixo_sub.text().strip()
         
-        if not camada or not campos_agrupar or not campo_area:
-            QMessageBox.warning(self, "Aviso", "Por favor, preencha as camadas e campos a dissolver!")
+        if not camada:
+            QMessageBox.warning(self, "Aviso", "Nenhuma camada selecionada na 'Camada de Entrada'!")
             return
             
-        tit_agrup = [t.strip() for t in self.txt_titulo_agrupar.text().split(",")]
-        tit_area = self.txt_titulo_area.text()
-        tit_perc = self.txt_titulo_perc.text()
+        if not campos_agrupar:
+            QMessageBox.warning(self, "Aviso", "Por favor, defina os campos a dissolver!")
+            return
+            
+        if not campos_area:
+            QMessageBox.warning(self, "Aviso", "Por favor, selecione os 'Campos de Área (Soma)'!")
+            return
+            
+        tit_agrup = [t.strip() for t in self.txt_titulo_agrupar.text().split(",") if t.strip()]
+        tit_areas = [t.strip() for t in self.txt_titulo_area.text().split(",") if t.strip()]
+        tit_perc = self.txt_titulo_perc.text().strip() or "Área (%)"
 
-        # Chama a função isolada que está no gerador_html.py
+        # Passa a nova variável para a função principal
         html_final = processar_e_gerar_html(
-            camada, campos_agrupar, campo_area, tem_subtotal, 
-            campo_sub, prefixo_sub, tit_agrup, tit_area, tit_perc
+            camada, campos_agrupar, campos_area, tem_subtotal, 
+            campo_sub, prefixo_sub, tit_agrup, tit_areas, gerar_perc, tit_perc, deduplicar_primeiro
         )
 
         QApplication.clipboard().setText(html_final)
